@@ -4,4 +4,5 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   base: "/jamalmess/",
   plugins: [react()],
+  build: { rollupOptions: { output: { entryFileNames: `assets/[name]-[hash]-v2.js` } } }
 });
