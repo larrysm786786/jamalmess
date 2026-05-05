@@ -1,4 +1,5 @@
 import type { AppState, Expense, Roommate } from "./types";
+import { supabase } from "./supabase";
 
 export const STORAGE_KEY = "messmate-vite-v1";
 export const DEFAULT_MONTH = new Date().toISOString().slice(0, 7);
@@ -126,6 +127,41 @@ export function readState(): AppState {
   } catch {
     return makeDefaultState();
   }
+}
+
+const DB_ROW_ID = 1;
+
+export async function loadFromSupabase(): Promise<AppState> {
+  try {
+    const { data, error } = await supabase
+      .from("mess_data")
+      .select("state")
+      .eq("id", DB_ROW_ID)
+      .single();
+
+    if (error || !data) return makeDefaultState();
+
+    const parsed = data.state as Partial<AppState>;
+    if (!parsed || !parsed.users) return makeDefaultState();
+
+    return {
+      ...makeDefaultState(),
+      ...parsed,
+      selectedMonth: parsed.selectedMonth || DEFAULT_MONTH,
+      users: Array.isArray(parsed.users) ? parsed.users : [],
+      expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
+      meals: Array.isArray(parsed.meals) ? parsed.meals : [],
+      rations: Array.isArray(parsed.rations) ? parsed.rations : []
+    };
+  } catch {
+    return makeDefaultState();
+  }
+}
+
+export async function saveToSupabase(state: AppState): Promise<void> {
+  await supabase
+    .from("mess_data")
+    .upsert({ id: DB_ROW_ID, state, updated_at: new Date().toISOString() });
 }
 
 export interface PersonSummary {

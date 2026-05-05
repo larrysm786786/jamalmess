@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { EmptyState, InfoBox, RecordCard, Row, SectionTitle, SummaryCard } from "./components";
 import type { AppState, Expense, MealLog, MealType, RationEntry, SplitType } from "./types";
 import {
@@ -11,10 +11,13 @@ import {
   makeDefaultState,
   money,
   readState,
+  loadFromSupabase,
+  saveToSupabase,
   summarizeMonth,
   today,
   uid
 } from "./utils";
+import { supabase } from "./supabase";
 
 type ExpenseFormState = {
   itemName: string;
@@ -80,6 +83,8 @@ function emptyRationForm(defaultPayer = ""): RationFormState {
 
 export default function App() {
   const [state, setState] = useState<AppState>(() => readState());
+  const [loading, setLoading] = useState(true);
+  const isSyncing = useRef(false);
   const [newUserName, setNewUserName] = useState("");
   const [expenseSearch, setExpenseSearch] = useState("");
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
@@ -97,9 +102,31 @@ export default function App() {
   );
 
   useEffect(() => {
+    loadFromSupabase().then((loaded) => {
+      setState(loaded);
+      setLoading(false);
+    });
+  }, []);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("mess_realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "mess_data" }, (payload) => {
+        if (isSyncing.current) return;
+        const incoming = (payload.new as { state: AppState }).state;
+        if (incoming) setState(incoming);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     document.documentElement.classList.toggle("dark", state.darkMode);
-  }, [state]);
+    isSyncing.current = true;
+    saveToSupabase(state).finally(() => { isSyncing.current = false; });
+  }, [state, loading]);
 
   useEffect(() => {
     const defaultPayer = state.users[0]?.id || "";
@@ -340,6 +367,14 @@ export default function App() {
       }
     };
     reader.readAsText(file);
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-page-light dark:bg-page-dark">
+        <p className="text-lg font-semibold text-slate-500 dark:text-slate-400">Loading data...</p>
+      </div>
+    );
   }
 
   return (
