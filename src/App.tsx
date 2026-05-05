@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState, InfoBox, RecordCard, Row, SectionTitle, SummaryCard } from "./components";
 import type { AppState, Expense, MealLog, MealType, RationEntry, SplitType } from "./types";
 import {
@@ -85,6 +85,7 @@ export default function App() {
   const [state, setState] = useState<AppState>(() => readState());
   const [loading, setLoading] = useState(true);
   const isSyncing = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [newUserName, setNewUserName] = useState("");
   const [expenseSearch, setExpenseSearch] = useState("");
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
@@ -125,7 +126,12 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     document.documentElement.classList.toggle("dark", state.darkMode);
     isSyncing.current = true;
-    saveToSupabase(state).finally(() => { isSyncing.current = false; });
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveToSupabase(state).finally(() => {
+        setTimeout(() => { isSyncing.current = false; }, 1000);
+      });
+    }, 700);
   }, [state, loading]);
 
   useEffect(() => {
