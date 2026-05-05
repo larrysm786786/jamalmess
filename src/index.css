@@ -1,0 +1,48 @@
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply min-h-screen bg-stone-100 text-slate-900 antialiased dark:bg-ink dark:text-slate-100;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply rounded-none border border-white/70 bg-white/80 shadow-soft backdrop-blur dark:border-white/10 dark:bg-slate-900/75;
+  }
+
+  .field {
+    @apply w-full rounded-none border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-brand-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100;
+  }
+
+  .btn-primary {
+    @apply rounded-none bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-brand-700;
+  }
+
+  .btn-secondary {
+    @apply rounded-none border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 transition hover:border-brand-300 hover:text-brand-700 dark:border-slate-700 dark:text-slate-100;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  .print-card {
+    box-shadow: none !important;
+    border: 1px solid #d1d5db !important;
+  }
+
+  body {
+    background: #ffffff !important;
+  }
+}
