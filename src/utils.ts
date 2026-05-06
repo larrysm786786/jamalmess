@@ -63,7 +63,7 @@ export function makeDefaultState(): AppState {
   ];
 
   return {
-    appName: "MessMate",
+    appName: "Jamal MessWala",
     darkMode: false,
     selectedMonth: DEFAULT_MONTH,
     users,

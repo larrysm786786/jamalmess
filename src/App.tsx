@@ -86,6 +86,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const isSyncing = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
+  const [selectedMealType, setSelectedMealType] = useState<string | null>(null);
   const [newUserName, setNewUserName] = useState("");
   const [expenseSearch, setExpenseSearch] = useState("");
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
@@ -103,10 +105,11 @@ export default function App() {
   );
 
   useEffect(() => {
-    loadFromSupabase().then((loaded) => {
-      setState(loaded);
-      setLoading(false);
-    });
+    const timeout = setTimeout(() => setLoading(false), 6000);
+    loadFromSupabase()
+      .then((loaded) => { setState(loaded); setLoading(false); })
+      .catch(() => setLoading(false))
+      .finally(() => clearTimeout(timeout));
   }, []);
 
   useEffect(() => {
@@ -383,41 +386,163 @@ export default function App() {
     );
   }
 
+  const selectedPerson = selectedPersonId ? state.users.find((u) => u.id === selectedPersonId) : null;
+  const personPurchases = selectedPersonId
+    ? [
+        ...state.expenses
+          .filter((e) => e.paidBy === selectedPersonId && (!state.selectedMonth || e.date.startsWith(state.selectedMonth)))
+          .map((e) => ({ date: e.date, item: e.itemName, amount: e.amount, type: "Expense" })),
+        ...state.rations
+          .filter((r) => r.paidBy === selectedPersonId && (!state.selectedMonth || r.date.startsWith(state.selectedMonth)))
+          .map((r) => ({ date: r.date, item: `${r.itemName} (${r.quantity} ${r.unit})`, amount: r.amount, type: "Ration" }))
+      ].sort((a, b) => b.date.localeCompare(a.date))
+    : [];
+
   return (
-    <div className="min-h-screen bg-page-light dark:bg-page-dark">
+    <div className="min-h-screen bg-white dark:bg-slate-950">
+
+      {selectedMealType && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setSelectedMealType(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-none bg-white shadow-2xl dark:bg-slate-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4" style={{backgroundColor:"#5025d1"}}>
+              <div>
+                <h2 className="text-base font-bold text-white">
+                  {{ Breakfast: "🌅", Lunch: "☀️", Dinner: "🌙" }[selectedMealType]} {selectedMealType} — Breakdown
+                </h2>
+                <p className="text-xs text-white/70">{formatMonth(state.selectedMonth)}</p>
+              </div>
+              <button onClick={() => setSelectedMealType(null)} className="text-xl font-bold text-white/80 hover:text-white">✕</button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto p-4">
+              <div className="mb-3 space-y-2">
+                {state.users.map((user) => {
+                  const userLogs = summary.meals.filter(
+                    (m) => m.mealType === selectedMealType && m.eaters.includes(user.id)
+                  );
+                  return (
+                    <div key={user.id} className="flex items-center justify-between rounded-none border border-slate-100 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-white">{user.name}</p>
+                      <span className="rounded-full px-2.5 py-0.5 text-xs font-bold text-white" style={{backgroundColor:"#5025d1"}}>
+                        {userLogs.length} times
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-700">
+                <p className="mb-2 text-xs font-semibold text-slate-500 uppercase">Date-wise log</p>
+                <div className="space-y-1.5">
+                  {summary.meals
+                    .filter((m) => m.mealType === selectedMealType)
+                    .sort((a, b) => b.date.localeCompare(a.date))
+                    .map((m) => (
+                      <div key={m.id} className="flex items-center justify-between rounded-none border border-slate-100 bg-slate-50 px-3 py-1.5 dark:border-slate-800 dark:bg-slate-950">
+                        <p className="text-xs text-slate-500">{formatDate(m.date)}</p>
+                        <p className="text-xs font-medium text-slate-800 dark:text-slate-200">
+                          {m.eaters.map((id) => userNameMap[id]).filter(Boolean).join(", ")}
+                        </p>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedPerson && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setSelectedPersonId(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-none bg-white shadow-2xl dark:bg-slate-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4" style={{backgroundColor:"#5025d1"}}>
+              <div>
+                <h2 className="text-base font-bold text-white">{selectedPerson.name} — Purchase History</h2>
+                <p className="text-xs text-white/70">{formatMonth(state.selectedMonth)}</p>
+              </div>
+              <button onClick={() => setSelectedPersonId(null)} className="text-white/80 hover:text-white text-xl font-bold">✕</button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto p-4">
+              {personPurchases.length ? (
+                <div className="space-y-2">
+                  {personPurchases.map((entry, i) => (
+                    <div key={i} className="flex items-center justify-between rounded-none border border-slate-100 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900 dark:text-white">{entry.item}</p>
+                        <p className="text-xs text-slate-500">{formatDate(entry.date)} • {entry.type}</p>
+                      </div>
+                      <p className="text-sm font-bold text-slate-900 dark:text-white">{money(entry.amount)}</p>
+                    </div>
+                  ))}
+                  <div className="flex justify-between border-t border-slate-200 pt-2 dark:border-slate-700">
+                    <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Total Paid</span>
+                    <span className="text-sm font-bold" style={{color:"#5025d1"}}>{money(personPurchases.reduce((s, e) => s + e.amount, 0))}</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="py-6 text-center text-sm text-slate-400">No purchases this month.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="mx-auto max-w-7xl px-3 py-3 sm:px-4 lg:px-5">
-        <header className="glass-card no-print mb-3 overflow-hidden p-4">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <header className="glass-card no-print mb-2 overflow-hidden p-3 panel-dark" style={{backgroundColor:"#5025d1"}}>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="max-w-2xl">
-              <p className="mb-2 inline-flex rounded-none bg-brand-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-brand-700 dark:bg-brand-500/15 dark:text-brand-200">
-                Shared bachelor mess app
-              </p>
-              <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white sm:text-4xl">
+              <h1 className="text-xl font-extrabold tracking-tight text-white sm:text-2xl">
                 {state.appName}
               </h1>
-              <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300 sm:text-base">
-                Daily meal tracking, ration records, roommate balances, and a clear monthly settlement report in one practical dashboard.
+              <p className="mt-1 max-w-xl text-xs leading-5 text-slate-600 dark:text-slate-300">
+                Daily meal tracking, ration records, roommate balances, and a clear monthly settlement report.
               </p>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="flex gap-2">
               <button
                 onClick={() => setState((current) => ({ ...current, darkMode: !current.darkMode }))}
-                className="btn-secondary"
+                className="btn-secondary p-2"
+                title={state.darkMode ? "Light mode" : "Dark mode"}
               >
-                {state.darkMode ? "Light mode" : "Dark mode"}
+                {state.darkMode ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+                )}
               </button>
-              <button onClick={exportBackup} className="rounded-none bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 dark:bg-white dark:text-slate-900">
-                Backup JSON
+              <button
+                onClick={exportBackup}
+                className="rounded-none bg-slate-900 p-2 text-white transition hover:bg-slate-700 dark:bg-white dark:text-slate-900"
+                title="Backup JSON"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               </button>
-              <button onClick={exportReport} className="btn-primary">
-                Export Report
+              <button
+                onClick={exportReport}
+                className="rounded-none bg-brand-600 p-2 text-white transition hover:bg-brand-700"
+                title="Export Report"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
               </button>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="rounded-none border border-brand-200 bg-brand-50 px-3.5 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-100 dark:border-brand-500/20 dark:bg-brand-500/10 dark:text-brand-200"
+                className="rounded-none border border-brand-200 bg-brand-50 p-2 text-brand-700 transition hover:bg-brand-100 dark:border-brand-500/20 dark:bg-brand-500/10 dark:text-brand-200"
+                title="Restore Backup"
               >
-                Restore Backup
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               </button>
               <input ref={fileInputRef} type="file" accept=".json,application/json" className="hidden" onChange={restoreBackup} />
             </div>
@@ -425,7 +550,7 @@ export default function App() {
         </header>
 
         <section className="no-print mb-3 grid gap-2.5 lg:grid-cols-4">
-          <div className="glass-card p-3.5">
+          <div className="glass-card p-2.5" style={{backgroundColor:"#f0f0f0"}}>
             <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Report Month</p>
             <input
               type="month"
@@ -439,16 +564,46 @@ export default function App() {
           <SummaryCard label="Ration Spend" value={money(summary.totalRationSpend)} />
         </section>
 
-        <section className="mb-3 grid gap-3 xl:grid-cols-[1.05fr_0.95fr]">
-          <div className="glass-card print-card p-4">
+        <section className="no-print mb-3 grid gap-3 xl:grid-cols-2">
+          <div className="glass-card p-3" style={{backgroundColor:"#ffffff"}}>
+            <SectionTitle title="Roommates" subtitle="Add 3 to 6 people and manage balances together" />
+            <div className="flex gap-3">
+              <input
+                value={newUserName}
+                onChange={(event) => setNewUserName(event.target.value)}
+                onKeyDown={(event) => event.key === "Enter" && addUser()}
+                placeholder="Enter roommate name"
+                className="field"
+              />
+              <button onClick={addUser} className="btn-primary">
+                Add
+              </button>
+            </div>
+            <div className="mt-5 space-y-3">
+              {state.users.map((user) => (
+                <div key={user.id} className="flex items-center justify-between rounded-none border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70">
+                  <span className="font-medium text-slate-900 dark:text-white">{user.name}</span>
+                  <button onClick={() => deleteUser(user.id)} className="text-sm font-semibold text-rose-600 dark:text-rose-300">
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="glass-card print-card p-4" style={{backgroundColor:"#ffffff"}}>
             <SectionTitle title="Dashboard" subtitle={formatMonth(state.selectedMonth)} />
             <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
               {summary.people.map((person) => (
-                <div key={person.id} className="rounded-none border border-slate-200/80 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/70">
+                <div
+                  key={person.id}
+                  onClick={() => setSelectedPersonId(person.id)}
+                  className="cursor-pointer rounded-none border border-slate-200/80 bg-slate-50 p-3 transition hover:border-[#5025d1] hover:shadow-md dark:border-slate-800 dark:bg-slate-950/70"
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-base font-semibold text-slate-900 dark:text-white">{person.name}</p>
-                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{person.meals} meals</p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{person.meals} meals • tap for history</p>
                     </div>
                     <span
                       className={`rounded-none px-2.5 py-1 text-xs font-semibold ${
@@ -475,61 +630,12 @@ export default function App() {
             </div>
           </div>
 
-          <div className="glass-card print-card p-4">
-            <div className="mb-5 flex items-start justify-between gap-4">
-              <SectionTitle title="Final Settlement" subtitle="Simplified payment breakdown" />
-              <button onClick={() => window.print()} className="btn-secondary no-print px-4 py-2">
-                Print / Save PDF
-              </button>
-            </div>
-            <div className="space-y-3">
-              {summary.settlements.length ? (
-                summary.settlements.map((entry, index) => (
-                    <div key={`${entry.from}-${entry.to}-${index}`} className="rounded-none border border-brand-100 bg-brand-50 p-2.5 dark:border-brand-500/20 dark:bg-brand-500/10">
-                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                      {entry.from} pays <span className="text-brand-700 dark:text-brand-300">{money(entry.amount)}</span> to {entry.to}
-                    </p>
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-none border border-emerald-200 bg-emerald-50 p-2.5 text-sm font-medium text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300">
-                  No one owes anyone for this month.
-                </div>
-              )}
-            </div>
-          </div>
         </section>
 
-        <section className="no-print mb-3 grid gap-3 xl:grid-cols-[0.85fr_1.15fr]">
-          <div className="glass-card p-4">
-            <SectionTitle title="Roommates" subtitle="Add 3 to 6 people and manage balances together" />
-            <div className="flex gap-3">
-              <input
-                value={newUserName}
-                onChange={(event) => setNewUserName(event.target.value)}
-                onKeyDown={(event) => event.key === "Enter" && addUser()}
-                placeholder="Enter roommate name"
-                className="field"
-              />
-              <button onClick={addUser} className="btn-primary">
-                Add
-              </button>
-            </div>
-            <div className="mt-5 space-y-3">
-              {state.users.map((user) => (
-                <div key={user.id} className="flex items-center justify-between rounded-none border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70">
-                  <span className="font-medium text-slate-900 dark:text-white">{user.name}</span>
-                  <button onClick={() => deleteUser(user.id)} className="text-sm font-semibold text-rose-600 dark:text-rose-300">
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="glass-card p-4">
+        <section className="no-print mb-3 grid gap-3 xl:grid-cols-2">
+          <div className="glass-card p-3" style={{backgroundColor:"#ffffff"}}>
             <SectionTitle title="Add Expense" subtitle="Track groceries, milk, vegetables, snacks, and daily spend" />
-            <form onSubmit={submitExpense} className="grid gap-4 md:grid-cols-2">
+            <form onSubmit={submitExpense} className="grid gap-2.5 md:grid-cols-2">
               <input
                 value={expenseForm.itemName}
                 onChange={(event) => setExpenseForm((current) => ({ ...current, itemName: event.target.value }))}
@@ -616,47 +722,62 @@ export default function App() {
               </div>
             </form>
           </div>
-        </section>
 
-        <section className="no-print mb-3 grid gap-3 xl:grid-cols-2">
-          <div className="glass-card p-4">
-            <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <SectionTitle title="Expense History" subtitle="Search, edit, and delete entries" />
-              <input
-                value={expenseSearch}
-                onChange={(event) => setExpenseSearch(event.target.value)}
-                placeholder="Search expenses"
-                className="field sm:max-w-xs"
-              />
+          <div className="glass-card print-card p-4" style={{backgroundColor:"#ffffff"}}>
+            <div className="mb-3 flex items-start justify-between gap-4">
+              <SectionTitle title="Final Settlement" subtitle="Simplified payment breakdown" />
+              <button onClick={() => window.print()} className="btn-secondary no-print px-4 py-2">
+                Print / Save PDF
+              </button>
             </div>
-
             <div className="space-y-3">
-              {filteredExpenses.length ? (
-                filteredExpenses.map((entry) => (
-                <RecordCard
-                  key={entry.id}
-                  title={entry.itemName}
-                  subtitle={`${formatDate(entry.date)} • Paid by ${userNameMap[entry.paidBy] || "-"} • ${entry.splitType}`}
-                  amount={money(entry.amount)}
-                  onEdit={() => startEditExpense(entry)}
-                  onDelete={() => removeRecord("expenses", entry.id)}
-                  />
+              {summary.settlements.length ? (
+                summary.settlements.map((entry, index) => (
+                  <div key={`${entry.from}-${entry.to}-${index}`} className="rounded-none border border-brand-100 bg-brand-50 p-2.5 dark:border-brand-500/20 dark:bg-brand-500/10">
+                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                      {entry.from} pays <span className="text-brand-700 dark:text-brand-300">{money(entry.amount)}</span> to {entry.to}
+                    </p>
+                  </div>
                 ))
               ) : (
-                <EmptyState text="No expenses found for this month or search term." />
+                <div className="rounded-none border border-emerald-200 bg-emerald-50 p-2.5 text-sm font-medium text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300">
+                  No one owes anyone for this month.
+                </div>
               )}
             </div>
           </div>
+        </section>
 
-          <div className="glass-card p-4">
+        <section className="no-print mb-3 grid gap-3 xl:grid-cols-2">
+          <div className="glass-card p-3" style={{backgroundColor:"#ffffff"}}>
             <SectionTitle title="Meal Tracking" subtitle="Log breakfast, lunch, and dinner attendance" />
+
+            <div className="mb-3 grid grid-cols-3 gap-2">
+              {MEAL_TYPES.map((mealType) => {
+                const logs = summary.meals.filter((m) => m.mealType === mealType);
+                const totalCount = logs.length;
+                const icons: Record<string, string> = { Breakfast: "🌅", Lunch: "☀️", Dinner: "🌙" };
+                return (
+                  <button
+                    key={mealType}
+                    onClick={() => setSelectedMealType(mealType)}
+                    className="rounded-none border border-slate-200 bg-slate-50 p-2 text-center transition hover:border-[#5025d1] hover:shadow-md dark:border-slate-700 dark:bg-slate-900"
+                  >
+                    <p className="text-lg">{icons[mealType]}</p>
+                    <p className="text-xs font-bold text-slate-900 dark:text-white">{mealType}</p>
+                    <p className="text-xs text-slate-500">{totalCount} logs</p>
+                  </button>
+                );
+              })}
+            </div>
+
             <div className="mb-3">
               <InfoBox>
                 Mark who actually ate each meal. Any expense using <span className="font-semibold">By meals</span> is divided from these meal counts, so someone who eats less pays less.
               </InfoBox>
             </div>
             <form onSubmit={submitMeal} className="grid gap-4">
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-2.5 md:grid-cols-2">
                 <input type="date" value={mealForm.date} onChange={(event) => setMealForm((current) => ({ ...current, date: event.target.value }))} className="field" />
                 <select value={mealForm.mealType} onChange={(event) => setMealForm((current) => ({ ...current, mealType: event.target.value as MealType }))} className="field">
                   {MEAL_TYPES.map((mealType) => (
@@ -712,12 +833,42 @@ export default function App() {
               ))}
             </div>
           </div>
+
+          <div className="glass-card p-3" style={{backgroundColor:"#ffffff"}}>
+            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <SectionTitle title="Expense History" subtitle="Search, edit, and delete entries" />
+              <input
+                value={expenseSearch}
+                onChange={(event) => setExpenseSearch(event.target.value)}
+                placeholder="Search expenses"
+                className="field sm:max-w-xs"
+              />
+            </div>
+
+            <div className="max-h-[340px] space-y-3 overflow-y-auto pr-1">
+              {filteredExpenses.length ? (
+                filteredExpenses.map((entry) => (
+                <RecordCard
+                  key={entry.id}
+                  title={entry.itemName}
+                  subtitle={`${formatDate(entry.date)} • Paid by ${userNameMap[entry.paidBy] || "-"} • ${entry.splitType}`}
+                  amount={money(entry.amount)}
+                  onEdit={() => startEditExpense(entry)}
+                  onDelete={() => removeRecord("expenses", entry.id)}
+                  />
+                ))
+              ) : (
+                <EmptyState text="No expenses found for this month or search term." />
+              )}
+            </div>
+          </div>
+
         </section>
 
-        <section className="no-print mb-3 grid gap-3 xl:grid-cols-[0.95fr_1.05fr]">
-          <div className="glass-card p-4">
+        <section className="no-print mb-3 grid gap-3 xl:grid-cols-2">
+          <div className="glass-card p-3" style={{backgroundColor:"#ffffff"}}>
             <SectionTitle title="Ration Tracking" subtitle="Track stock items and include them in monthly settlement" />
-            <form onSubmit={submitRation} className="grid gap-4 md:grid-cols-2">
+            <form onSubmit={submitRation} className="grid gap-2.5 md:grid-cols-2">
               <input value={rationForm.itemName} onChange={(event) => setRationForm((current) => ({ ...current, itemName: event.target.value }))} placeholder="Ration item" className="field" />
               <input type="number" min="0" step="0.01" value={rationForm.amount} onChange={(event) => setRationForm((current) => ({ ...current, amount: event.target.value }))} placeholder="Amount" className="field" />
               <div className="grid grid-cols-[1fr_110px] gap-3">
@@ -747,7 +898,7 @@ export default function App() {
             </form>
           </div>
 
-          <div className="glass-card p-4">
+          <div className="glass-card p-3" style={{backgroundColor:"#ffffff"}}>
             <SectionTitle title="Monthly Ration Summary" subtitle={`Usage and spend for ${formatMonth(state.selectedMonth)}`} />
             <div className="space-y-3">
               {summary.rationSummary.length ? (
@@ -787,3 +938,4 @@ export default function App() {
     </div>
   );
 }
+
