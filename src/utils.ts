@@ -1,4 +1,4 @@
-import type { AppState, Expense, Roommate } from "./types";
+import type { AppState, Expense, LoginAccount, Roommate } from "./types";
 import { supabase } from "./supabase";
 
 export const STORAGE_KEY = "messmate-vite-v1";
@@ -55,6 +55,13 @@ export function downloadFile(filename: string, content: string, type: string): v
   URL.revokeObjectURL(url);
 }
 
+export const DEFAULT_ADMIN: LoginAccount = {
+  id: "admin-001",
+  username: "Admin",
+  password: "@Thefighter123",
+  role: "admin"
+};
+
 export function makeDefaultState(): AppState {
   const users: Roommate[] = [
     { id: uid("user"), name: "Ayan" },
@@ -67,6 +74,7 @@ export function makeDefaultState(): AppState {
     darkMode: false,
     selectedMonth: DEFAULT_MONTH,
     users,
+    accounts: [DEFAULT_ADMIN],
     expenses: [
       {
         id: uid("expense"),
@@ -122,7 +130,8 @@ export function readState(): AppState {
       users: Array.isArray(parsed.users) ? parsed.users : [],
       expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
       meals: Array.isArray(parsed.meals) ? parsed.meals : [],
-      rations: Array.isArray(parsed.rations) ? parsed.rations : []
+      rations: Array.isArray(parsed.rations) ? parsed.rations : [],
+      accounts: Array.isArray(parsed.accounts) && parsed.accounts.length > 0 ? parsed.accounts : [DEFAULT_ADMIN]
     };
   } catch {
     return makeDefaultState();
@@ -151,7 +160,8 @@ export async function loadFromSupabase(): Promise<AppState> {
       users: Array.isArray(parsed.users) ? parsed.users : [],
       expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
       meals: Array.isArray(parsed.meals) ? parsed.meals : [],
-      rations: Array.isArray(parsed.rations) ? parsed.rations : []
+      rations: Array.isArray(parsed.rations) ? parsed.rations : [],
+      accounts: Array.isArray(parsed.accounts) && parsed.accounts.length > 0 ? parsed.accounts : [DEFAULT_ADMIN]
     };
   } catch {
     return makeDefaultState();

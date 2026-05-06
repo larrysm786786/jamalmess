@@ -9,11 +9,11 @@ export function SectionTitle({ title, subtitle }: { title: string; subtitle: str
   );
 }
 
-export function SummaryCard({ label, value }: { label: string; value: string }) {
+export function SummaryCard({ label, value, bg }: { label: string; value: string; bg?: string }) {
   return (
-    <div className="glass-card p-2.5">
-      <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</p>
-      <p className="mt-1.5 text-xl font-bold text-slate-900 dark:text-white">{value}</p>
+    <div className="glass-card p-2.5" style={bg ? { backgroundColor: bg } : undefined}>
+      <p className="text-xs font-medium" style={bg ? { color: "#ffffff" } : undefined}>{label}</p>
+      <p className="mt-1.5 text-xl font-bold" style={bg ? { color: "#ffffff" } : undefined}>{value}</p>
     </div>
   );
 }
@@ -32,13 +32,15 @@ export function RecordCard({
   subtitle,
   amount,
   onEdit,
-  onDelete
+  onDelete,
+  locked = false
 }: {
   title: string;
   subtitle: string;
   amount?: string;
   onEdit: () => void;
   onDelete: () => void;
+  locked?: boolean;
 }) {
   return (
     <div className="rounded-none border border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-950/70">
@@ -49,14 +51,12 @@ export function RecordCard({
         </div>
         <div className="text-right">
           {amount ? <p className="text-sm font-bold text-slate-900 dark:text-white">{amount}</p> : null}
-          <div className="mt-1 flex justify-end gap-2">
-            <button onClick={onEdit} className="text-xs font-semibold text-brand-700 dark:text-brand-300">
-              Edit
-            </button>
-            <button onClick={onDelete} className="text-xs font-semibold text-rose-600 dark:text-rose-300">
-              Delete
-            </button>
-          </div>
+          {!locked && (
+            <div className="mt-1 flex justify-end gap-2">
+              <button onClick={onEdit} className="text-xs font-semibold text-brand-700 dark:text-brand-300">Edit</button>
+              <button onClick={onDelete} className="text-xs font-semibold text-rose-600 dark:text-rose-300">Delete</button>
+            </div>
+          )}
         </div>
       </div>
     </div>

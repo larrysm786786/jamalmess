@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState, InfoBox, RecordCard, Row, SectionTitle, SummaryCard } from "./components";
-import type { AppState, Expense, MealLog, MealType, RationEntry, SplitType } from "./types";
+import type { AppState, Expense, LoginAccount, MealLog, MealType, RationEntry, SplitType } from "./types";
 import {
+  DEFAULT_ADMIN,
   DEFAULT_MONTH,
   MEAL_TYPES,
   STORAGE_KEY,
@@ -81,11 +82,232 @@ function emptyRationForm(defaultPayer = ""): RationFormState {
   };
 }
 
+const LOGIN_KEY = "messmate-auth";
+
+type SessionUser = { id: string; username: string; role: "admin" | "user" };
+
+function EyeIcon({ open }: { open: boolean }) {
+  return open ? (
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+  ) : (
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+  );
+}
+
+function PasswordInput({ value, onChange, placeholder = "Enter password" }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <input
+        className="field pr-8"
+        type={show ? "text" : "password"}
+        autoComplete="current-password"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <button type="button" onClick={() => setShow((v) => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+        <EyeIcon open={show} />
+      </button>
+    </div>
+  );
+}
+
+function SettingsModal({
+  isAdmin, currentUser, state, setState, onClose, onLogout
+}: {
+  isAdmin: boolean;
+  currentUser: SessionUser;
+  state: AppState;
+  setState: React.Dispatch<React.SetStateAction<AppState>>;
+  onClose: () => void;
+  onLogout: () => void;
+}) {
+  const [newUsername, setNewUsername] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [myNewPass, setMyNewPass] = useState("");
+  const [myConfirmPass, setMyConfirmPass] = useState("");
+  const [passMsg, setPassMsg] = useState("");
+  const [editPassId, setEditPassId] = useState<string | null>(null);
+  const [editPassVal, setEditPassVal] = useState("");
+
+  function addAccount() {
+    const u = newUsername.trim();
+    const p = newPassword.trim();
+    if (!u || !p) return;
+    if (state.accounts.some((a) => a.username === u)) {
+      window.alert("Username already exists.");
+      return;
+    }
+    const account: LoginAccount = { id: uid("acc"), username: u, password: p, role: "user" };
+    setState((cur) => ({ ...cur, accounts: [...cur.accounts, account] }));
+    setNewUsername("");
+    setNewPassword("");
+  }
+
+  function deleteAccount(id: string) {
+    if (id === "admin-001") { window.alert("Admin account cannot be deleted."); return; }
+    setState((cur) => ({ ...cur, accounts: cur.accounts.filter((a) => a.id !== id) }));
+  }
+
+  function saveEditPass(id: string) {
+    if (!editPassVal.trim()) return;
+    setState((cur) => ({ ...cur, accounts: cur.accounts.map((a) => a.id === id ? { ...a, password: editPassVal.trim() } : a) }));
+    setEditPassId(null);
+    setEditPassVal("");
+  }
+
+  function changeMyPassword() {
+    if (!myNewPass || myNewPass !== myConfirmPass) {
+      setPassMsg("Passwords do not match.");
+      return;
+    }
+    setState((cur) => ({ ...cur, accounts: cur.accounts.map((a) => a.id === currentUser.id ? { ...a, password: myNewPass } : a) }));
+    setMyNewPass("");
+    setMyConfirmPass("");
+    setPassMsg("Password changed successfully.");
+    setTimeout(() => setPassMsg(""), 3000);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-none bg-white shadow-2xl dark:bg-slate-900 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 sticky top-0" style={{backgroundColor:"#475569"}}>
+          <h2 className="text-sm font-bold text-white">Settings</h2>
+          <button onClick={onClose} className="text-white/70 hover:text-white">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+
+        <div className="space-y-5 p-4">
+          {isAdmin && (
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">App Name</label>
+              <input className="field" value={state.appName} onChange={(e) => setState((cur) => ({ ...cur, appName: e.target.value }))} placeholder="App name" />
+            </div>
+          )}
+
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Dark Mode</span>
+            <button
+              onClick={() => setState((cur) => ({ ...cur, darkMode: !cur.darkMode }))}
+              className={`relative h-6 w-11 rounded-full transition ${state.darkMode ? "bg-brand-600" : "bg-slate-300"}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${state.darkMode ? "translate-x-5" : "translate-x-0"}`} />
+            </button>
+          </div>
+
+          <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+            <p className="mb-2 text-xs font-bold text-slate-700 dark:text-slate-200">Change My Password</p>
+            <div className="space-y-2">
+              <PasswordInput value={myNewPass} onChange={setMyNewPass} placeholder="New password" />
+              <PasswordInput value={myConfirmPass} onChange={setMyConfirmPass} placeholder="Confirm password" />
+              {passMsg && <p className={`text-xs ${passMsg.includes("success") ? "text-emerald-600" : "text-rose-600"}`}>{passMsg}</p>}
+              <button onClick={changeMyPassword} className="btn-primary w-full">Update Password</button>
+            </div>
+          </div>
+
+          {isAdmin && (
+            <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+              <p className="mb-3 text-xs font-bold text-slate-700 dark:text-slate-200">User Accounts</p>
+              <div className="mb-3 space-y-2">
+                <input className="field" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
+                <PasswordInput value={newPassword} onChange={setNewPassword} placeholder="Password" />
+                <button onClick={addAccount} className="btn-primary w-full">Create User</button>
+              </div>
+              <div className="space-y-2">
+                {state.accounts.map((acc) => (
+                  <div key={acc.id} className="rounded-none border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800">
+                    {editPassId === acc.id ? (
+                      <div className="flex gap-2">
+                        <PasswordInput value={editPassVal} onChange={setEditPassVal} placeholder="New password" />
+                        <button onClick={() => saveEditPass(acc.id)} className="btn-primary px-2">Save</button>
+                        <button onClick={() => setEditPassId(null)} className="btn-secondary px-2">✕</button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-semibold text-slate-800 dark:text-white">{acc.username}</p>
+                          <p className="text-xs text-slate-500">{acc.role}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => { setEditPassId(acc.id); setEditPassVal(""); }} className="text-xs font-semibold text-brand-700 dark:text-brand-300">Change Pass</button>
+                          {acc.id !== "admin-001" && (
+                            <button onClick={() => deleteAccount(acc.id)} className="text-xs font-semibold text-rose-600">Delete</button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <button onClick={onClose} className="btn-primary w-full">Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({ accounts, onLogin }: { accounts: LoginAccount[]; onLogin: (user: SessionUser) => void }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const found = accounts.find((a) => a.username === username && a.password === password);
+    if (found) {
+      const session: SessionUser = { id: found.id, username: found.username, role: found.role };
+      sessionStorage.setItem(LOGIN_KEY, JSON.stringify(session));
+      onLogin(session);
+    } else {
+      setError("Invalid username or password.");
+    }
+  }
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-100 dark:bg-slate-950 px-4">
+      <div className="w-full max-w-sm rounded-none shadow-2xl overflow-hidden">
+        <div className="p-6 text-center" style={{backgroundColor:"#5025d1"}}>
+          <h1 className="text-xl font-bold text-white">Jamal MessWala</h1>
+          <p className="mt-1 text-xs text-white/70">Sign in to continue</p>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4 bg-white dark:bg-slate-900 p-6">
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Username</label>
+            <input
+              className="field"
+              type="text"
+              autoComplete="username"
+              placeholder="Enter username"
+              value={username}
+              onChange={(e) => { setUsername(e.target.value); setError(""); }}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Password</label>
+            <PasswordInput value={password} onChange={(v) => { setPassword(v); setError(""); }} />
+          </div>
+          {error && <p className="text-xs text-rose-600">{error}</p>}
+          <button type="submit" className="btn-primary w-full py-2">Login</button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  const [currentUser, setCurrentUser] = useState<SessionUser | null>(() => {
+    try { return JSON.parse(sessionStorage.getItem(LOGIN_KEY) || "null"); } catch { return null; }
+  });
   const [state, setState] = useState<AppState>(() => readState());
   const [loading, setLoading] = useState(true);
   const isSyncing = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const [selectedMealType, setSelectedMealType] = useState<string | null>(null);
   const [newUserName, setNewUserName] = useState("");
@@ -378,6 +600,17 @@ export default function App() {
     reader.readAsText(file);
   }
 
+  const isAdmin = currentUser?.role === "admin";
+
+  function logout() {
+    sessionStorage.removeItem(LOGIN_KEY);
+    setCurrentUser(null);
+  }
+
+  if (!currentUser) {
+    return <LoginScreen accounts={state.accounts ?? [DEFAULT_ADMIN]} onLogin={(user) => setCurrentUser(user)} />;
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-page-light dark:bg-page-dark">
@@ -400,6 +633,17 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-white dark:bg-slate-950">
+
+      {showSettings && (
+        <SettingsModal
+          isAdmin={isAdmin}
+          currentUser={currentUser}
+          state={state}
+          setState={setState}
+          onClose={() => setShowSettings(false)}
+          onLogout={logout}
+        />
+      )}
 
       {selectedMealType && (
         <div
@@ -511,7 +755,7 @@ export default function App() {
               </p>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
               <button
                 onClick={() => setState((current) => ({ ...current, darkMode: !current.darkMode }))}
                 className="btn-secondary p-2"
@@ -523,26 +767,24 @@ export default function App() {
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
                 )}
               </button>
-              <button
-                onClick={exportBackup}
-                className="rounded-none bg-slate-900 p-2 text-white transition hover:bg-slate-700 dark:bg-white dark:text-slate-900"
-                title="Backup JSON"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              {isAdmin && (
+                <>
+                  <button onClick={exportBackup} className="rounded-none bg-slate-900 p-2 text-white transition hover:bg-slate-700 dark:bg-white dark:text-slate-900" title="Backup JSON">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  </button>
+                  <button onClick={exportReport} className="rounded-none bg-brand-600 p-2 text-white transition hover:bg-brand-700" title="Export Report">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                  </button>
+                  <button onClick={() => fileInputRef.current?.click()} className="rounded-none p-2 text-white transition" style={{backgroundColor:"#f59e0b"}} title="Restore Backup">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  </button>
+                </>
+              )}
+              <button onClick={() => setShowSettings(true)} className="rounded-none bg-slate-600 p-2 text-white transition hover:bg-slate-700" title="Settings">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
               </button>
-              <button
-                onClick={exportReport}
-                className="rounded-none bg-brand-600 p-2 text-white transition hover:bg-brand-700"
-                title="Export Report"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-              </button>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="rounded-none border border-brand-200 bg-brand-50 p-2 text-brand-700 transition hover:bg-brand-100 dark:border-brand-500/20 dark:bg-brand-500/10 dark:text-brand-200"
-                title="Restore Backup"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <button onClick={logout} className="rounded-none bg-rose-600 p-2 text-white transition hover:bg-rose-700" title="Logout">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
               </button>
               <input ref={fileInputRef} type="file" accept=".json,application/json" className="hidden" onChange={restoreBackup} />
             </div>
@@ -550,42 +792,43 @@ export default function App() {
         </header>
 
         <section className="no-print mb-3 grid gap-2.5 lg:grid-cols-4">
-          <div className="glass-card p-2.5" style={{backgroundColor:"#f0f0f0"}}>
-            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Report Month</p>
+          <div className="glass-card p-2.5" style={{backgroundColor:"#3b82f6"}}>
+            <p className="text-sm font-medium" style={{color:"#ffffff"}}>Report Month</p>
             <input
               type="month"
               value={state.selectedMonth}
               onChange={(event) => setState((current) => ({ ...current, selectedMonth: event.target.value }))}
               className="field mt-3"
+              style={{backgroundColor:"rgba(255,255,255,0.2)", borderColor:"rgba(255,255,255,0.4)", color:"#ffffff"}}
             />
           </div>
-          <SummaryCard label="Total Shared Expense" value={money(summary.totalExpenses)} />
-          <SummaryCard label="Total Meals Logged" value={String(summary.totalMeals)} />
-          <SummaryCard label="Ration Spend" value={money(summary.totalRationSpend)} />
+          <SummaryCard label="Total Shared Expense" value={money(summary.totalExpenses)} bg="#10b981" />
+          <SummaryCard label="Total Meals Logged" value={String(summary.totalMeals)} bg="#f59e0b" />
+          <SummaryCard label="Ration Spend" value={money(summary.totalRationSpend)} bg="#ef4444" />
         </section>
 
         <section className="no-print mb-3 grid gap-3 xl:grid-cols-2">
           <div className="glass-card p-3" style={{backgroundColor:"#ffffff"}}>
             <SectionTitle title="Roommates" subtitle="Add 3 to 6 people and manage balances together" />
-            <div className="flex gap-3">
-              <input
-                value={newUserName}
-                onChange={(event) => setNewUserName(event.target.value)}
-                onKeyDown={(event) => event.key === "Enter" && addUser()}
-                placeholder="Enter roommate name"
-                className="field"
-              />
-              <button onClick={addUser} className="btn-primary">
-                Add
-              </button>
-            </div>
-            <div className="mt-5 space-y-3">
+            {isAdmin && (
+              <div className="flex gap-3">
+                <input
+                  value={newUserName}
+                  onChange={(event) => setNewUserName(event.target.value)}
+                  onKeyDown={(event) => event.key === "Enter" && addUser()}
+                  placeholder="Enter roommate name"
+                  className="field"
+                />
+                <button onClick={addUser} className="btn-primary">Add</button>
+              </div>
+            )}
+            <div className="mt-3 space-y-3">
               {state.users.map((user) => (
                 <div key={user.id} className="flex items-center justify-between rounded-none border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70">
                   <span className="font-medium text-slate-900 dark:text-white">{user.name}</span>
-                  <button onClick={() => deleteUser(user.id)} className="text-sm font-semibold text-rose-600 dark:text-rose-300">
-                    Remove
-                  </button>
+                  {isAdmin && (
+                    <button onClick={() => deleteUser(user.id)} className="text-sm font-semibold text-rose-600 dark:text-rose-300">Remove</button>
+                  )}
                 </div>
               ))}
             </div>
@@ -666,8 +909,14 @@ export default function App() {
               <input
                 type="date"
                 value={expenseForm.date}
-                onChange={(event) => setExpenseForm((current) => ({ ...current, date: event.target.value }))}
+                onChange={(event) => {
+                  if (!isAdmin && event.target.value !== today()) return;
+                  setExpenseForm((current) => ({ ...current, date: event.target.value }));
+                }}
+                max={isAdmin ? undefined : today()}
+                min={isAdmin ? undefined : today()}
                 className="field"
+                readOnly={!isAdmin}
               />
               <select
                 value={expenseForm.splitType}
@@ -776,50 +1025,46 @@ export default function App() {
                 Mark who actually ate each meal. Any expense using <span className="font-semibold">By meals</span> is divided from these meal counts, so someone who eats less pays less.
               </InfoBox>
             </div>
-            <form onSubmit={submitMeal} className="grid gap-4">
-              <div className="grid gap-2.5 md:grid-cols-2">
-                <input type="date" value={mealForm.date} onChange={(event) => setMealForm((current) => ({ ...current, date: event.target.value }))} className="field" />
-                <select value={mealForm.mealType} onChange={(event) => setMealForm((current) => ({ ...current, mealType: event.target.value as MealType }))} className="field">
-                  {MEAL_TYPES.map((mealType) => (
-                    <option key={mealType} value={mealType}>
-                      {mealType}
-                    </option>
+            {isAdmin && (
+              <form onSubmit={submitMeal} className="grid gap-4">
+                <div className="grid gap-2.5 md:grid-cols-2">
+                  <input type="date" value={mealForm.date} onChange={(event) => setMealForm((current) => ({ ...current, date: event.target.value }))} className="field" />
+                  <select value={mealForm.mealType} onChange={(event) => setMealForm((current) => ({ ...current, mealType: event.target.value as MealType }))} className="field">
+                    {MEAL_TYPES.map((mealType) => (
+                      <option key={mealType} value={mealType}>{mealType}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {state.users.map((user) => (
+                    <label key={user.id} className="flex items-center gap-3 rounded-none border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70">
+                      <input
+                        type="checkbox"
+                        checked={mealForm.eaters.includes(user.id)}
+                        onChange={(event) =>
+                          setMealForm((current) => ({
+                            ...current,
+                            eaters: event.target.checked
+                              ? [...current.eaters, user.id]
+                              : current.eaters.filter((id) => id !== user.id)
+                          }))
+                        }
+                        className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                      />
+                      <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{user.name}</span>
+                    </label>
                   ))}
-                </select>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                {state.users.map((user) => (
-                  <label key={user.id} className="flex items-center gap-3 rounded-none border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70">
-                    <input
-                      type="checkbox"
-                      checked={mealForm.eaters.includes(user.id)}
-                      onChange={(event) =>
-                        setMealForm((current) => ({
-                          ...current,
-                          eaters: event.target.checked
-                            ? [...current.eaters, user.id]
-                            : current.eaters.filter((id) => id !== user.id)
-                        }))
-                      }
-                      className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-                    />
-                    <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{user.name}</span>
-                  </label>
-                ))}
-              </div>
-
-              <div className="flex flex-wrap gap-3">
-                <button type="submit" className="btn-primary">
-                  {editingMealId ? "Save Meal Log" : "Add Meal Log"}
-                </button>
-                {editingMealId && (
-                  <button type="button" onClick={resetMealForm} className="btn-secondary">
-                    Cancel
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <button type="submit" className="btn-primary">
+                    {editingMealId ? "Save Meal Log" : "Add Meal Log"}
                   </button>
-                )}
-              </div>
-            </form>
+                  {editingMealId && (
+                    <button type="button" onClick={resetMealForm} className="btn-secondary">Cancel</button>
+                  )}
+                </div>
+              </form>
+            )}
 
             <div className="mt-5 space-y-3">
               {summary.meals.map((entry) => (
@@ -827,8 +1072,9 @@ export default function App() {
                   key={entry.id}
                   title={entry.mealType}
                   subtitle={`${formatDate(entry.date)} • Ate: ${entry.eaters.map((id) => userNameMap[id]).filter(Boolean).join(", ")}`}
-                  onEdit={() => startEditMeal(entry)}
-                  onDelete={() => removeRecord("meals", entry.id)}
+                  onEdit={isAdmin ? () => startEditMeal(entry) : () => {}}
+                  onDelete={isAdmin ? () => removeRecord("meals", entry.id) : () => {}}
+                  locked={!isAdmin}
                 />
               ))}
             </div>
@@ -847,16 +1093,20 @@ export default function App() {
 
             <div className="max-h-[340px] space-y-3 overflow-y-auto pr-1">
               {filteredExpenses.length ? (
-                filteredExpenses.map((entry) => (
-                <RecordCard
-                  key={entry.id}
-                  title={entry.itemName}
-                  subtitle={`${formatDate(entry.date)} • Paid by ${userNameMap[entry.paidBy] || "-"} • ${entry.splitType}`}
-                  amount={money(entry.amount)}
-                  onEdit={() => startEditExpense(entry)}
-                  onDelete={() => removeRecord("expenses", entry.id)}
-                  />
-                ))
+                filteredExpenses.map((entry) => {
+                  const canEdit = isAdmin || entry.date === today();
+                  return (
+                    <RecordCard
+                      key={entry.id}
+                      title={entry.itemName}
+                      subtitle={`${formatDate(entry.date)} • Paid by ${userNameMap[entry.paidBy] || "-"} • ${entry.splitType}${!canEdit ? " 🔒" : ""}`}
+                      amount={money(entry.amount)}
+                      onEdit={canEdit ? () => startEditExpense(entry) : () => {}}
+                      onDelete={canEdit ? () => removeRecord("expenses", entry.id) : () => {}}
+                      locked={!canEdit}
+                    />
+                  );
+                })
               ) : (
                 <EmptyState text="No expenses found for this month or search term." />
               )}
@@ -868,34 +1118,31 @@ export default function App() {
         <section className="no-print mb-3 grid gap-3 xl:grid-cols-2">
           <div className="glass-card p-3" style={{backgroundColor:"#ffffff"}}>
             <SectionTitle title="Ration Tracking" subtitle="Track stock items and include them in monthly settlement" />
-            <form onSubmit={submitRation} className="grid gap-2.5 md:grid-cols-2">
-              <input value={rationForm.itemName} onChange={(event) => setRationForm((current) => ({ ...current, itemName: event.target.value }))} placeholder="Ration item" className="field" />
-              <input type="number" min="0" step="0.01" value={rationForm.amount} onChange={(event) => setRationForm((current) => ({ ...current, amount: event.target.value }))} placeholder="Amount" className="field" />
-              <div className="grid grid-cols-[1fr_110px] gap-3">
-                <input type="number" min="0" step="0.01" value={rationForm.quantity} onChange={(event) => setRationForm((current) => ({ ...current, quantity: event.target.value }))} placeholder="Quantity" className="field" />
-                <input value={rationForm.unit} onChange={(event) => setRationForm((current) => ({ ...current, unit: event.target.value }))} placeholder="Unit" className="field" />
-              </div>
-              <select value={rationForm.paidBy} onChange={(event) => setRationForm((current) => ({ ...current, paidBy: event.target.value }))} className="field">
-                <option value="">Paid by</option>
-                {state.users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.name}
-                  </option>
-                ))}
-              </select>
-              <input type="date" value={rationForm.date} onChange={(event) => setRationForm((current) => ({ ...current, date: event.target.value }))} className="field" />
-              <textarea value={rationForm.notes} onChange={(event) => setRationForm((current) => ({ ...current, notes: event.target.value }))} rows={3} placeholder="Notes" className="field md:col-span-2" />
-              <div className="flex flex-wrap gap-3 md:col-span-2">
-                <button type="submit" className="btn-primary">
-                  {editingRationId ? "Save Ration" : "Add Ration"}
-                </button>
-                {editingRationId && (
-                  <button type="button" onClick={resetRationForm} className="btn-secondary">
-                    Cancel
-                  </button>
-                )}
-              </div>
-            </form>
+            {isAdmin && (
+              <form onSubmit={submitRation} className="grid gap-2.5 md:grid-cols-2">
+                <input value={rationForm.itemName} onChange={(event) => setRationForm((current) => ({ ...current, itemName: event.target.value }))} placeholder="Ration item" className="field" />
+                <input type="number" min="0" step="0.01" value={rationForm.amount} onChange={(event) => setRationForm((current) => ({ ...current, amount: event.target.value }))} placeholder="Amount" className="field" />
+                <div className="grid grid-cols-[1fr_110px] gap-3">
+                  <input type="number" min="0" step="0.01" value={rationForm.quantity} onChange={(event) => setRationForm((current) => ({ ...current, quantity: event.target.value }))} placeholder="Quantity" className="field" />
+                  <input value={rationForm.unit} onChange={(event) => setRationForm((current) => ({ ...current, unit: event.target.value }))} placeholder="Unit" className="field" />
+                </div>
+                <select value={rationForm.paidBy} onChange={(event) => setRationForm((current) => ({ ...current, paidBy: event.target.value }))} className="field">
+                  <option value="">Paid by</option>
+                  {state.users.map((user) => (
+                    <option key={user.id} value={user.id}>{user.name}</option>
+                  ))}
+                </select>
+                <input type="date" value={rationForm.date} onChange={(event) => setRationForm((current) => ({ ...current, date: event.target.value }))} className="field" />
+                <textarea value={rationForm.notes} onChange={(event) => setRationForm((current) => ({ ...current, notes: event.target.value }))} rows={3} placeholder="Notes" className="field md:col-span-2" />
+                <div className="flex flex-wrap gap-3 md:col-span-2">
+                  <button type="submit" className="btn-primary">{editingRationId ? "Save Ration" : "Add Ration"}</button>
+                  {editingRationId && (
+                    <button type="button" onClick={resetRationForm} className="btn-secondary">Cancel</button>
+                  )}
+                </div>
+              </form>
+            )}
+            {!isAdmin && <EmptyState text="Ration entries are view-only. Contact admin to make changes." />}
           </div>
 
           <div className="glass-card p-3" style={{backgroundColor:"#ffffff"}}>
@@ -927,8 +1174,9 @@ export default function App() {
                   title={entry.itemName}
                   subtitle={`${entry.quantity || 0} ${entry.unit} • ${formatDate(entry.date)} • Paid by ${userNameMap[entry.paidBy] || "-"}${entry.notes ? ` • ${entry.notes}` : ""}`}
                   amount={money(entry.amount)}
-                  onEdit={() => startEditRation(entry)}
-                  onDelete={() => removeRecord("rations", entry.id)}
+                  onEdit={isAdmin ? () => startEditRation(entry) : () => {}}
+                  onDelete={isAdmin ? () => removeRecord("rations", entry.id) : () => {}}
+                  locked={!isAdmin}
                 />
               ))}
             </div>

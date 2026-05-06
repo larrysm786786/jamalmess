@@ -39,6 +39,13 @@ export interface RationEntry {
   notes: string;
 }
 
+export interface LoginAccount {
+  id: string;
+  username: string;
+  password: string;
+  role: "admin" | "user";
+}
+
 export interface AppState {
   appName: string;
   darkMode: boolean;
@@ -47,4 +54,5 @@ export interface AppState {
   expenses: Expense[];
   meals: MealLog[];
   rations: RationEntry[];
+  accounts: LoginAccount[];
 }
