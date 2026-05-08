@@ -1,9 +1,35 @@
-import type { AppState, Expense, LoginAccount, Roommate } from "./types";
+import type { AppState, Expense, LoginAccount } from "./types";
 import { supabase } from "./supabase";
 
 export const STORAGE_KEY = "messmate-vite-v1";
 export const DEFAULT_MONTH = new Date().toISOString().slice(0, 7);
 export const MEAL_TYPES = ["Breakfast", "Lunch", "Dinner"] as const;
+
+const SIG_SECRET = "jm-s3cur3-2025-@#!";
+
+function simpleHash(str: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = (h * 0x01000193) >>> 0;
+  }
+  return h.toString(16);
+}
+
+function signState(state: AppState): string {
+  const { accounts: _a, ...rest } = state as AppState & { _sig?: string };
+  return simpleHash(JSON.stringify(rest) + SIG_SECRET);
+}
+
+export function addSignature(state: AppState): AppState & { _sig: string } {
+  return { ...state, _sig: signState(state) };
+}
+
+export function verifySignature(data: AppState & { _sig?: string }): boolean {
+  if (!data._sig) return false;
+  const { _sig, ...state } = data;
+  return _sig === signState(state as AppState);
+}
 
 export function uid(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -58,63 +84,20 @@ export function downloadFile(filename: string, content: string, type: string): v
 export const DEFAULT_ADMIN: LoginAccount = {
   id: "admin-001",
   username: "Admin",
-  password: "@Thefighter123",
+  password: import.meta.env.VITE_ADMIN_PASSWORD as string,
   role: "admin"
 };
 
 export function makeDefaultState(): AppState {
-  const users: Roommate[] = [
-    { id: uid("user"), name: "Ayan" },
-    { id: uid("user"), name: "Rafi" },
-    { id: uid("user"), name: "Sohan" }
-  ];
-
   return {
     appName: "Jamal MessWala",
     darkMode: false,
     selectedMonth: DEFAULT_MONTH,
-    users,
+    users: [],
     accounts: [DEFAULT_ADMIN],
-    expenses: [
-      {
-        id: uid("expense"),
-        itemName: "Vegetables",
-        amount: 480,
-        paidBy: users[0].id,
-        date: today(),
-        splitType: "meal",
-        customShares: []
-      },
-      {
-        id: uid("expense"),
-        itemName: "Milk",
-        amount: 180,
-        paidBy: users[1].id,
-        date: today(),
-        splitType: "equal",
-        customShares: []
-      }
-    ],
-    meals: [
-      {
-        id: uid("meal"),
-        date: today(),
-        mealType: "Lunch",
-        eaters: users.map((user) => user.id)
-      }
-    ],
-    rations: [
-      {
-        id: uid("ration"),
-        itemName: "Rice",
-        quantity: "10",
-        unit: "kg",
-        amount: 720,
-        paidBy: users[2].id,
-        date: today(),
-        notes: "Monthly stock"
-      }
-    ]
+    expenses: [],
+    meals: [],
+    rations: []
   };
 }
 
@@ -131,11 +114,16 @@ export function readState(): AppState {
       expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
       meals: Array.isArray(parsed.meals) ? parsed.meals : [],
       rations: Array.isArray(parsed.rations) ? parsed.rations : [],
-      accounts: Array.isArray(parsed.accounts) && parsed.accounts.length > 0 ? parsed.accounts : [DEFAULT_ADMIN]
+      accounts: forceAdminAccount(Array.isArray(parsed.accounts) ? parsed.accounts : [])
     };
   } catch {
     return makeDefaultState();
   }
+}
+
+function forceAdminAccount(accounts: LoginAccount[]): LoginAccount[] {
+  const others = accounts.filter((a) => a.id !== "admin-001");
+  return [DEFAULT_ADMIN, ...others];
 }
 
 const DB_ROW_ID = 1;
@@ -150,8 +138,13 @@ export async function loadFromSupabase(): Promise<AppState> {
 
     if (error || !data) return makeDefaultState();
 
-    const parsed = data.state as Partial<AppState>;
+    const parsed = data.state as Partial<AppState> & { _sig?: string };
     if (!parsed || !parsed.users) return makeDefaultState();
+
+    if (!verifySignature(parsed as AppState & { _sig?: string })) {
+      console.warn("Data signature mismatch — possible tampering detected. Resetting.");
+      return makeDefaultState();
+    }
 
     return {
       ...makeDefaultState(),
@@ -161,7 +154,7 @@ export async function loadFromSupabase(): Promise<AppState> {
       expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
       meals: Array.isArray(parsed.meals) ? parsed.meals : [],
       rations: Array.isArray(parsed.rations) ? parsed.rations : [],
-      accounts: Array.isArray(parsed.accounts) && parsed.accounts.length > 0 ? parsed.accounts : [DEFAULT_ADMIN]
+      accounts: forceAdminAccount(Array.isArray(parsed.accounts) ? parsed.accounts : [])
     };
   } catch {
     return makeDefaultState();
@@ -171,7 +164,7 @@ export async function loadFromSupabase(): Promise<AppState> {
 export async function saveToSupabase(state: AppState): Promise<void> {
   await supabase
     .from("mess_data")
-    .upsert({ id: DB_ROW_ID, state, updated_at: new Date().toISOString() });
+    .upsert({ id: DB_ROW_ID, state: addSignature(state), updated_at: new Date().toISOString() });
 }
 
 export interface PersonSummary {
@@ -209,14 +202,30 @@ export interface MonthSummary {
   rations: AppState["rations"];
 }
 
-export function summarizeMonth(state: AppState): MonthSummary {
+export type MealFilter = "all" | "Breakfast" | "Lunch" | "Dinner";
+
+export function summarizeMonth(state: AppState, mealFilter: MealFilter = "all"): MonthSummary {
   const { selectedMonth, users } = state;
-  const expenses = state.expenses.filter((entry) => inMonth(entry.date, selectedMonth));
+  const allExpenses = state.expenses.filter((entry) => inMonth(entry.date, selectedMonth));
   const meals = state.meals.filter((entry) => inMonth(entry.date, selectedMonth));
-  const rations = state.rations.filter((entry) => inMonth(entry.date, selectedMonth));
+  const allRations = state.rations.filter((entry) => inMonth(entry.date, selectedMonth));
+
+  const expenses = mealFilter === "all"
+    ? allExpenses
+    : allExpenses.filter((e) => {
+        if (e.splitType !== "meal") return true;
+        const lt = e.linkedMealType || "all";
+        return lt === "all" || lt === mealFilter;
+      });
+
+  const rations = mealFilter === "all" ? allRations : [];
+
+  const filteredMealsForCount = mealFilter === "all"
+    ? meals
+    : meals.filter((m) => m.mealType === mealFilter);
 
   const mealCounts = Object.fromEntries(users.map((user) => [user.id, 0]));
-  meals.forEach((meal) => {
+  filteredMealsForCount.forEach((meal) => {
     meal.eaters.forEach((userId) => {
       if (userId in mealCounts) {
         mealCounts[userId] += 1;
@@ -264,7 +273,19 @@ export function summarizeMonth(state: AppState): MonthSummary {
       return;
     }
 
-    const totalMeals = Object.values(mealCounts).reduce((sum, count) => sum + count, 0);
+    const linkedMealType = expense.linkedMealType || "all";
+    const filteredMeals = linkedMealType === "all"
+      ? meals
+      : meals.filter((m) => m.mealType === linkedMealType);
+
+    const typedMealCounts = Object.fromEntries(users.map((user) => [user.id, 0]));
+    filteredMeals.forEach((meal) => {
+      meal.eaters.forEach((userId) => {
+        if (userId in typedMealCounts) typedMealCounts[userId] += 1;
+      });
+    });
+
+    const totalMeals = Object.values(typedMealCounts).reduce((sum, count) => sum + count, 0);
     if (!totalMeals) {
       const share = users.length ? amount / users.length : 0;
       users.forEach((user) => {
@@ -274,7 +295,7 @@ export function summarizeMonth(state: AppState): MonthSummary {
     }
 
     users.forEach((user) => {
-      owedTotals[user.id] += (amount * mealCounts[user.id]) / totalMeals;
+      owedTotals[user.id] += (amount * typedMealCounts[user.id]) / totalMeals;
     });
   });
 
